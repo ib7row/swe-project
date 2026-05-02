@@ -15,22 +15,9 @@
 #   Factor 11 – Cloud Run automatically ships stdout/stderr to Cloud Logging
 # ============================================================================
 
-# ── 1. Enable required APIs ──────────────────────────────────────────────────
-
-resource "google_project_service" "eventarc_api" {
-  service            = "eventarc.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "run_api" {
-  service            = "run.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "storage_api" {
-  service            = "storage.googleapis.com"
-  disable_on_destroy = false
-}
+# ── 1. Required APIs ─────────────────────────────────────────────────────────
+# All APIs are enabled via google_project_service.required_apis in main.tf.
+# No duplicate declarations here.
 
 # ── 2. GCS Buckets ───────────────────────────────────────────────────────────
 
@@ -84,8 +71,9 @@ resource "google_storage_bucket_iam_member" "worker_write_output" {
 # ── 4. Cloud Run — Ingestion Service (Publisher) ─────────────────────────────
 
 resource "google_cloud_run_v2_service" "ingestion" {
-  name     = "ingestion-service"
-  location = var.region
+  name                = "ingestion-service"
+  location            = var.region
+  deletion_protection = false
 
   template {
     service_account = google_service_account.cloudrun_sa.email
@@ -137,7 +125,7 @@ resource "google_cloud_run_v2_service" "ingestion" {
   }
 
   depends_on = [
-    google_project_service.run_api,
+    google_project_service.required_apis,
     google_artifact_registry_repository.app_repo,
   ]
 }
@@ -154,8 +142,9 @@ resource "google_cloud_run_v2_service_iam_member" "ingestion_public" {
 # ── 5. Cloud Run — Worker Service (Subscriber) ───────────────────────────────
 
 resource "google_cloud_run_v2_service" "worker" {
-  name     = "worker-service"
-  location = var.region
+  name                = "worker-service"
+  location            = var.region
+  deletion_protection = false
 
   template {
     service_account = google_service_account.cloudrun_sa.email
@@ -207,7 +196,7 @@ resource "google_cloud_run_v2_service" "worker" {
   }
 
   depends_on = [
-    google_project_service.run_api,
+    google_project_service.required_apis,
     google_artifact_registry_repository.app_repo,
   ]
 }
@@ -265,7 +254,7 @@ resource "google_eventarc_trigger" "gcs_to_worker" {
   service_account = google_service_account.eventarc_sa.email
 
   depends_on = [
-    google_project_service.eventarc_api,
+    google_project_service.required_apis,
     google_project_iam_member.gcs_pubsub_publisher,
     google_cloud_run_v2_service_iam_member.eventarc_invoke_worker,
   ]

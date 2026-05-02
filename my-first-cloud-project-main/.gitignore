@@ -1,0 +1,32 @@
+
+# Terraform — NEVER commit provider binaries or local state
+.terraform/
+.terraform.lock.hcl
+
+# Terraform state files (contain sensitive infrastructure metadata)
+*.tfstate
+*.tfstate.*
+
+# Secret variable files (where you store actual passwords/IDs)
+*.tfvars
+*.tfvars.json
+
+# Environment variables
+.env
+
+# Terraform crash logs
+crash.log
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Docker
+.dockerignore

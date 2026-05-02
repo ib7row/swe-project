@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Subscriber App</title>
+</head>
+<body>
+  <h1>Subscriber Web App</h1>
+
+  <h2>Received Messages</h2>
+
+  <ul>
+    {% for message in messages %}
+      <li>{{ message }}</li>
+    {% endfor %}
+  </ul>
+
+  {% if not messages %}
+    <p>No messages received yet.</p>
+  {% endif %}
+</body>
+</html>

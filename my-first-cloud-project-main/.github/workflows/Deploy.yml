@@ -1,0 +1,100 @@
+name: Build & Deploy — File Converter
+
+# ── Factor 5: Build, release, run are strictly separated ─────────────────────
+# Every push to main builds a new immutable image (build),
+# tags it with the git SHA (release), then deploys to Cloud Run (run).
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/**"
+      - ".github/workflows/Deploy.yml"
+  workflow_dispatch:
+
+env:
+  REGION:     me-central1
+  REGISTRY:   me-central1-docker.pkg.dev
+  REPO:       file-converter-repo
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    # Required for Workload Identity Federation (keyless auth)
+    permissions:
+      contents:  read
+      id-token:  write
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Authenticate to GCP via WIF (no long-lived keys) ──────────────
+      - name: Authenticate to GCP (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account:           ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      # ── 3. Configure Docker to push to Artifact Registry ─────────────────
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      # ── 4a. Build & Push — Ingestion Service (Publisher) ─────────────────
+      - name: Build ingestion-service image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/ingestion-service"
+          docker build \
+            -t "${IMAGE}:${{ github.sha }}" \
+            -t "${IMAGE}:latest" \
+            apps/Publisher
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
+      # ── 4b. Build & Push — Worker Service (Subscriber) ───────────────────
+      - name: Build worker-service image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/worker-service"
+          docker build \
+            -t "${IMAGE}:${{ github.sha }}" \
+            -t "${IMAGE}:latest" \
+            apps/Subscriber
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
+      # ── 5a. Deploy — Ingestion Service to Cloud Run ───────────────────────
+      - name: Deploy ingestion-service to Cloud Run
+        run: |
+          gcloud run deploy ingestion-service \
+            --image="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/ingestion-service:${{ github.sha }}" \
+            --region="${{ env.REGION }}" \
+            --platform=managed \
+            --service-account="${{ secrets.WIF_SERVICE_ACCOUNT }}" \
+            --set-env-vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_RAW_BUCKET=${{ secrets.GCS_RAW_BUCKET }}" \
+            --allow-unauthenticated \
+            --quiet
+
+      # ── 5b. Deploy — Worker Service to Cloud Run ──────────────────────────
+      - name: Deploy worker-service to Cloud Run
+        run: |
+          gcloud run deploy worker-service \
+            --image="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/worker-service:${{ github.sha }}" \
+            --region="${{ env.REGION }}" \
+            --platform=managed \
+            --service-account="${{ secrets.WIF_SERVICE_ACCOUNT }}" \
+            --set-env-vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_RAW_BUCKET=${{ secrets.GCS_RAW_BUCKET }},GCS_OUTPUT_BUCKET=${{ secrets.GCS_OUTPUT_BUCKET }}" \
+            --no-allow-unauthenticated \
+            --quiet
+
+      # ── 6. Print deployed URLs ────────────────────────────────────────────
+      - name: Print service URLs
+        run: |
+          echo "=== Deployed Services ==="
+          gcloud run services describe ingestion-service \
+            --region="${{ env.REGION }}" --format="value(status.url)"
+          gcloud run services describe worker-service \
+            --region="${{ env.REGION }}" --format="value(status.url)"
